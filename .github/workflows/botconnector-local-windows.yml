@@ -55,12 +55,30 @@ jobs:
           command -v glslc
           glslc --version | head -1
 
-      - name: Build Windows app
+      - name: Build Jan prerequisites
+        shell: bash
+        run: |
+          make install-and-build install-rust-targets
+
+      - name: Build Vulkan engine from short target path
         shell: bash
         env:
           JAN_ENGINE_VARIANT: vulkan
           JAN_ENGINE_REQUIRE_SIGNING: '0'
-        run: make build
+          CARGO_TARGET_DIR: D:/e
+          JAN_ENGINE_BUILD_LOG: D:/a/BotConnector-Local/BotConnector-Local/src-tauri/target/engine-build.log
+        run: |
+          mkdir -p src-tauri/target
+          make build-engine
+          test -f src-tauri/resources/bin/jan-llama-worker.exe
+          ls -lh src-tauri/resources/bin
+
+      - name: Build Windows desktop bundle
+        shell: bash
+        env:
+          JAN_ENGINE_VARIANT: vulkan
+          JAN_ENGINE_REQUIRE_SIGNING: '0'
+        run: yarn build
 
       - name: Record artifact sizes
         if: success()
