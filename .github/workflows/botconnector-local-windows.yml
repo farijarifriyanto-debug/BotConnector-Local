@@ -9,7 +9,7 @@ permissions:
 jobs:
   build-windows-vulkan:
     name: Windows x64 Vulkan
-    runs-on: windows-2025
+    runs-on: windows-2022
     timeout-minutes: 90
 
     steps:
@@ -44,38 +44,23 @@ jobs:
         with:
           variant: vulkan
 
-      - name: Install pinned Ninja
-        shell: pwsh
+      - name: Verify Windows engine executables
+        shell: bash
         run: |
-          $version = '1.13.2'
-          $url = "https://github.com/ninja-build/ninja/releases/download/v$version/ninja-win.zip"
-          $expected = '07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65'
-          $zip = Join-Path $env:RUNNER_TEMP 'ninja-win.zip'
-          $dest = 'C:\ninja'
-          Invoke-WebRequest -Uri $url -OutFile $zip
-          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) {
-            throw "Ninja SHA256 mismatch: $actual"
-          }
-          Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Expand-Archive -Path $zip -DestinationPath $dest -Force
-          if (-not (Test-Path "$dest\ninja.exe")) {
-            throw 'Pinned Ninja executable missing after extraction'
-          }
-          $dest | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & "$dest\ninja.exe" --version
+          set -euxo pipefail
+          command -v ninja
+          ninja --version
+          command -v clang
+          clang --version | head -1
+          command -v glslc
+          glslc --version | head -1
 
       - name: Build Windows app
         shell: bash
         env:
           JAN_ENGINE_VARIANT: vulkan
           JAN_ENGINE_REQUIRE_SIGNING: '0'
-        run: |
-          export PATH="/c/ninja:$PATH"
-          echo "ninja=$(command -v ninja)"
-          ninja --version
-          make build
+        run: make build
 
       - name: Record artifact sizes
         if: success()
