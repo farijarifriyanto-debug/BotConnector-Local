@@ -59,6 +59,17 @@ jobs:
         with:
           variant: vulkan
 
+      - name: Normalize Ninja path for CMake
+        shell: pwsh
+        run: |
+          $ninja = (Get-Command ninja.exe -ErrorAction Stop).Source
+          $targetDir = 'C:\ProgramData\chocolatey\bin'
+          New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+          $target = Join-Path $targetDir 'ninja.exe'
+          if (-not (Test-Path $target)) {
+            Copy-Item -Force $ninja $target
+          }
+          & $target --version
       - name: Build Windows app
         shell: bash
         env:
