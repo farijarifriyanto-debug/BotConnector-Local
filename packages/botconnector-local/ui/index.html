@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BotConnector Local</title>
+  <style>
+    :root{font-family:Inter,system-ui,Segoe UI,sans-serif;color:#e8edf5;background:#0b1020}*{box-sizing:border-box}
+    body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#18213d 0,#0b1020 45%)}
+    .app{max-width:1050px;margin:auto;padding:24px}.top{display:flex;justify-content:space-between;gap:18px;align-items:center;margin-bottom:18px}
+    h1{font-size:22px;margin:0}.sub{color:#9eabc3;font-size:13px}.pill{padding:7px 10px;border:1px solid #30405f;border-radius:999px;font-size:12px}
+    .grid{display:grid;grid-template-columns:280px 1fr;gap:16px}.card{background:#11182a;border:1px solid #26324b;border-radius:16px;padding:16px}
+    .label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8290aa;margin:14px 0 6px}
+    select,textarea,button{font:inherit}select,textarea{width:100%;background:#0b1120;color:#edf2fa;border:1px solid #35415a;border-radius:10px;padding:10px}
+    button{background:#e9eef8;color:#0c1220;border:0;border-radius:10px;padding:9px 12px;cursor:pointer}button.secondary{background:#202a40;color:#dfe8f7}
+    .actions{display:flex;gap:8px;flex-wrap:wrap}.meta{font-size:12px;color:#a8b3c8;line-height:1.55;word-break:break-word}
+    .chat{height:67vh;display:flex;flex-direction:column}.messages{flex:1;overflow:auto;padding:4px 2px 14px}
+    .msg{max-width:85%;padding:10px 12px;border-radius:12px;margin:8px 0;white-space:pre-wrap;line-height:1.45}.user{margin-left:auto;background:#2c3d63}.assistant{background:#1a2337}
+    .empty{color:#8896af;text-align:center;margin-top:18vh}.composer{display:grid;grid-template-columns:1fr auto;gap:10px}.composer textarea{resize:none;min-height:48px;max-height:150px}
+    .warn{background:#2a2012;border:1px solid #66512d;padding:10px;border-radius:10px;color:#efcf98;font-size:12px;margin-top:12px}
+    @media(max-width:780px){.grid{grid-template-columns:1fr}.chat{height:62vh}.top{align-items:flex-start;flex-direction:column}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="top"><div><h1>BotConnector Local</h1><div class="sub">Local AI on this PC · no cloud required</div></div><div class="pill" id="health">Starting…</div></div>
+    <div class="grid">
+      <aside class="card">
+        <div class="label">Model</div><select id="model"></select>
+        <div class="actions" style="margin-top:10px"><button class="secondary" id="refresh">Refresh</button><button class="secondary" id="folder">Models folder</button></div>
+        <div class="label">Device</div><div class="meta" id="device">Detecting…</div>
+        <div class="label">Runtime</div><div class="meta" id="runtime">Vulkan · 127.0.0.1</div>
+        <div class="warn" id="noModels" hidden>No GGUF model found. Put a .gguf file in the Models folder, then press Refresh.</div>
+      </aside>
+      <main class="card chat">
+        <div class="messages" id="messages"><div class="empty" id="empty">Choose a local model and start chatting.</div></div>
+        <div class="composer"><textarea id="prompt" placeholder="Message BotConnector Local"></textarea><button id="send">Send</button></div>
+      </main>
+    </div>
+  </div>
+<script>
+const TOKEN='__BOTCONNECTOR_TOKEN__';
+const H={'x-botconnector-token':TOKEN,'content-type':'application/json'};
+const $=id=>document.getElementById(id);
+let history=JSON.parse(localStorage.getItem('botconnector-local-chat-v1')||'[]');
+let sending=false;
+
+function save(){localStorage.setItem('botconnector-local-chat-v1',JSON.stringify(history.slice(-60)))}
+function render(){
+  $('messages').querySelectorAll('.msg').forEach(x=>x.remove());
+  $('empty').hidden=history.length>0;
+  for(const m of history){const d=document.createElement('div');d.className='msg '+m.role;d.textContent=m.content;$('messages').appendChild(d)}
+  $('messages').scrollTop=$('messages').scrollHeight;
+}
+async function api(path,init={}){const r=await fetch(path,{...init,headers:{...H,...(init.headers||{})}});if(!r.ok)throw new Error(await r.text());return r}
+async function status(){
+  const s=await (await api('/api/status')).json();
+  $('health').textContent='Local · '+s.backend;
+  $('device').textContent=s.cpu+' · '+s.ramGiB+' GB RAM'+(s.devices?.length?' · '+s.devices.map(d=>d.name||d.id).join(', '):'');
+  $('runtime').textContent=s.backend+' · '+s.modelsDir;
+  const sel=$('model'), prev=sel.value;sel.innerHTML='';
+  for(const m of s.models||[]){const o=document.createElement('option');o.value=m.id;o.textContent=m.id+(m.status?.value?' · '+m.status.value:'');sel.appendChild(o)}
+  if([...sel.options].some(o=>o.value===prev))sel.value=prev;
+  $('noModels').hidden=sel.options.length>0;
+}
+async function refresh(){await api('/api/refresh',{method:'POST',body:'{}'});await status()}
+async function send(){
+  if(sending)return;const text=$('prompt').value.trim(),model=$('model').value;if(!text||!model)return;
+  sending=true;$('send').disabled=true;$('prompt').value='';
+  history.push({role:'user',content:text},{role:'assistant',content:''});render();
+  try{
+    await api('/models/load',{method:'POST',body:JSON.stringify({model})});
+    const r=await api('/v1/chat/completions',{method:'POST',body:JSON.stringify({model,messages:history.slice(0,-1),stream:true,temperature:.7})});
+    const reader=r.body.getReader(),dec=new TextDecoder();let buf='';
+    while(true){const {done,value}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});const lines=buf.split('\n');buf=lines.pop()||'';
+      for(const line of lines){if(!line.startsWith('data:'))continue;const data=line.slice(5).trim();if(!data||data==='[DONE]')continue;try{const j=JSON.parse(data);const t=j.choices?.[0]?.delta?.content||'';if(t){history[history.length-1].content+=t;render()}}catch{}}
+    }
+    save();
+  }catch(e){history[history.length-1].content='Error: '+e.message;render();save()}
+  finally{sending=false;$('send').disabled=false}
+}
+$('send').onclick=send;$('refresh').onclick=refresh;$('folder').onclick=()=>api('/api/open-models-folder',{method:'POST',body:'{}'});
+$('prompt').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+render();status().catch(e=>$('health').textContent='Runtime error');
+</script>
+</body>
+</html>

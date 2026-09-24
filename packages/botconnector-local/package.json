@@ -1,0 +1,22 @@
+{
+  "name": "@botconnector/local",
+  "version": "0.1.0",
+  "description": "First-party BotConnector Local launcher and offline chat UI",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "botconnector-local": "bin/botconnector-local.mjs"
+  },
+  "files": [
+    "bin",
+    "ui",
+    "runtime",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "runtime-check": "node bin/botconnector-local.mjs --runtime-check"
+  }
+}

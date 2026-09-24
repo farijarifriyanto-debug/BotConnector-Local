@@ -1,18 +1,38 @@
-name: BotConnector Local Windows Baseline
+name: BotConnector Local PowerShell Runtime
 
 on:
+  push:
+    branches: [botconnector-local]
+    paths:
+      - '.github/workflows/botconnector-local-windows.yml'
+      - 'packages/botconnector-local/**'
+      - 'src-tauri/build-utils/**'
+      - 'src-tauri/plugins/tauri-plugin-llamacpp/**'
+      - 'Makefile'
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: write
+
+concurrency:
+  group: botconnector-local-runtime-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-windows-vulkan:
-    name: Windows x64 Vulkan
+  build-windows-vulkan-runtime:
+    name: Windows x64 Vulkan runtime
     runs-on: windows-2022
-    timeout-minutes: 90
-
+    timeout-minutes: 60
     steps:
+      - name: Cancel superseded desktop baseline
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$env:GITHUB_REPOSITORY/actions/runs/36034747229/cancel" 2>$null
+          if ($LASTEXITCODE -ne 0) { Write-Host "Previous run already stopped or cannot be cancelled; continuing." }
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -23,92 +43,61 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup Yarn
-        shell: pwsh
-        run: |
-          corepack enable
-          corepack prepare yarn@4.5.3 --activate
-          yarn --version
-
-      - name: Install dependencies
-        shell: pwsh
-        run: yarn install --immutable
-
-      - name: Setup llama.cpp Vulkan toolchain
+      - name: Setup Vulkan engine toolchain
         uses: ./.github/actions/setup-engine-toolchain
         with:
           variant: vulkan
 
-      - name: Verify Windows engine executables
+      - name: Verify engine toolchain
         shell: bash
         run: |
-          set -euxo pipefail
-          command -v ninja
           ninja --version
-          command -v clang
           clang --version | head -1
-          command -v glslc
           glslc --version | head -1
 
-      - name: Build Jan prerequisites
-        shell: bash
-        run: |
-          make install-and-build install-rust-targets
-
-      - name: Build Vulkan engine from short target path
+      - name: Build Vulkan worker only
         shell: bash
         env:
           JAN_ENGINE_VARIANT: vulkan
           JAN_ENGINE_REQUIRE_SIGNING: '0'
           CARGO_TARGET_DIR: D:/e
-          JAN_ENGINE_BUILD_LOG: D:/a/BotConnector-Local/BotConnector-Local/src-tauri/target/engine-build.log
+          JAN_ENGINE_BUILD_LOG: D:/a/BotConnector-Local/BotConnector-Local/engine-build.log
         run: |
-          mkdir -p src-tauri/target
           make build-engine
           test -f src-tauri/resources/bin/jan-llama-worker.exe
-          ls -lh src-tauri/resources/bin
 
-      - name: Build Windows desktop bundle
-        shell: bash
-        env:
-          JAN_ENGINE_VARIANT: vulkan
-          JAN_ENGINE_REQUIRE_SIGNING: '0'
-        run: yarn build
-
-      - name: Record artifact sizes
-        if: success()
+      - name: Stage BotConnector Local npm package
         shell: pwsh
         run: |
-          Write-Host '=== NSIS ==='
-          Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe -ErrorAction SilentlyContinue |
-            Select-Object Name,Length | Format-Table -AutoSize
-          Write-Host '=== MSI ==='
-          Get-ChildItem src-tauri/target/release/bundle/msi/*.msi -ErrorAction SilentlyContinue |
-            Select-Object Name,Length | Format-Table -AutoSize
-          Write-Host '=== MAIN EXE ==='
-          Get-ChildItem src-tauri/target/release/*.exe -ErrorAction SilentlyContinue |
-            Select-Object Name,Length | Format-Table -AutoSize
+          $runtime = 'packages/botconnector-local/runtime/win32-x64-vulkan'
+          New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+          Copy-Item src-tauri/resources/bin/* $runtime -Force
+          Copy-Item LICENSE packages/botconnector-local/LICENSE -Force
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          node packages/botconnector-local/bin/botconnector-local.mjs --runtime-check
+          Push-Location packages/botconnector-local
+          $tgz = npm pack --pack-destination ../../dist
+          Pop-Location
+          Write-Host "Package: $tgz"
+          Get-ChildItem dist | Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Upload PowerShell/NPM runtime
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: botconnector-local-powershell-win-x64-vulkan
+          path: dist/*.tgz
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload engine log on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: engine-build-log-windows-vulkan
-          path: src-tauri/target/engine-build.log
+          name: botconnector-local-engine-build-log
+          path: engine-build.log
           if-no-files-found: ignore
-
-      - name: Upload Windows installers
-        if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: botconnector-local-windows-vulkan
-          path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: error
-          retention-days: 14
