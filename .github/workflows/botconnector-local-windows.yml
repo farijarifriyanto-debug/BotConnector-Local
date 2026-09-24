@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 concurrency:
   group: botconnector-local-runtime-${{ github.ref }}
@@ -25,14 +24,6 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
-      - name: Cancel superseded desktop baseline
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --method POST "repos/$env:GITHUB_REPOSITORY/actions/runs/36034747229/cancel" 2>$null
-          if ($LASTEXITCODE -ne 0) { Write-Host "Previous run already stopped or cannot be cancelled; continuing." }
-
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
