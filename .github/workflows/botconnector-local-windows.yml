@@ -1,0 +1,81 @@
+name: BotConnector Local Windows Baseline
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-vulkan:
+    name: Windows x64 Vulkan
+    runs-on: windows-2025
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Yarn
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare yarn@4.5.3 --activate
+          yarn --version
+
+      - name: Install dependencies
+        shell: pwsh
+        run: yarn install --immutable
+
+      - name: Setup llama.cpp Vulkan toolchain
+        uses: ./.github/actions/setup-engine-toolchain
+        with:
+          variant: vulkan
+
+      - name: Build Windows app
+        shell: bash
+        env:
+          JAN_ENGINE_VARIANT: vulkan
+          JAN_ENGINE_REQUIRE_SIGNING: '0'
+        run: make build
+
+      - name: Record artifact sizes
+        if: success()
+        shell: pwsh
+        run: |
+          Write-Host '=== NSIS ==='
+          Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe -ErrorAction SilentlyContinue |
+            Select-Object Name,Length | Format-Table -AutoSize
+          Write-Host '=== MSI ==='
+          Get-ChildItem src-tauri/target/release/bundle/msi/*.msi -ErrorAction SilentlyContinue |
+            Select-Object Name,Length | Format-Table -AutoSize
+          Write-Host '=== MAIN EXE ==='
+          Get-ChildItem src-tauri/target/release/*.exe -ErrorAction SilentlyContinue |
+            Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Upload engine log on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: engine-build-log-windows-vulkan
+          path: src-tauri/target/engine-build.log
+          if-no-files-found: ignore
+
+      - name: Upload Windows installers
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: botconnector-local-windows-vulkan
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 14
