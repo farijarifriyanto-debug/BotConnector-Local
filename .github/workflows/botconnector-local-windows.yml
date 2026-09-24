@@ -20,6 +20,21 @@ jobs:
         shell: pwsh
         run: git config --system core.longpaths true
 
+      - name: Ensure Ninja path for CMake
+        shell: pwsh
+        run: |
+          $target = 'C:\ProgramData\chocolatey\bin\ninja.exe'
+          if (-not (Test-Path $target)) {
+            $src = (Get-Command ninja.exe -ErrorAction SilentlyContinue).Source
+            if (-not $src) {
+              choco install ninja -y --no-progress
+            } else {
+              New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
+              Copy-Item $src $target -Force
+            }
+          }
+          if (-not (Test-Path $target)) { throw "Ninja not found at expected path: $target" }
+          & $target --version
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
