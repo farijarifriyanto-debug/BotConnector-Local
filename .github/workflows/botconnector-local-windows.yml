@@ -44,19 +44,27 @@ jobs:
         with:
           variant: vulkan
 
-      - name: Pin Ninja to stable path
+      - name: Install pinned Ninja
         shell: pwsh
         run: |
-          $src = (Get-Command ninja.exe -ErrorAction Stop).Source
-          New-Item -ItemType Directory -Force -Path 'C:\ninja' | Out-Null
-          if ($src -ne 'C:\ninja\ninja.exe') {
-            Copy-Item $src 'C:\ninja\ninja.exe' -Force
+          $version = '1.13.2'
+          $url = "https://github.com/ninja-build/ninja/releases/download/v$version/ninja-win.zip"
+          $expected = '07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65'
+          $zip = Join-Path $env:RUNNER_TEMP 'ninja-win.zip'
+          $dest = 'C:\ninja'
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            throw "Ninja SHA256 mismatch: $actual"
           }
-          if (-not (Test-Path 'C:\ninja\ninja.exe')) {
-            throw 'Failed to stage Ninja at C:\ninja\ninja.exe'
+          Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          if (-not (Test-Path "$dest\ninja.exe")) {
+            throw 'Pinned Ninja executable missing after extraction'
           }
-          'C:\ninja' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & 'C:\ninja\ninja.exe' --version
+          $dest | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$dest\ninja.exe" --version
 
       - name: Build Windows app
         shell: bash
